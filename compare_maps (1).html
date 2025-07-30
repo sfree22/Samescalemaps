@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dual Map Comparison</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+    #controls {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10000;
+      background: rgba(255,255,255,0.9);
+      padding: 8px;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      font-family: sans-serif;
+    }
+    #map-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    #map2, #map1 {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+    }
+    #map2 { z-index: 1; }
+    #map1 {
+      z-index: 2;
+      clip-path: polygon(0 0, 50% 0, 50% 100%, 0 100%);
+    }
+    #divider {
+      position: absolute;
+      top: 0; left: 50%; width: 6px; height: 100%;
+      background: #333; z-index: 3; cursor: col-resize;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #handle {
+      width: 16px; height: 16px; background: #fff;
+      border: 2px solid #333; border-radius: 50%; box-shadow: 0 0 4px rgba(0,0,0,0.5);
+      cursor: grab;
+    }
+    input[type="text"] {
+      width: 120px;
+      padding: 6px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid #007bff;
+      border-radius: 4px;
+      background: #007bff;
+      color: #fff;
+      transition: background .2s;
+    }
+    button:hover { background: #0056b3; }
+    .switch-label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label class="switch-label"><input type="checkbox" id="centerSync"> Sync Center</label>
+    <label class="switch-label"><input type="checkbox" id="zoomSync" checked> Sync Zoom</label>
+    <label class="switch-label"><input type="checkbox" id="panSync"> Sync Pan</label>
+    <button id="snapView">Snap View</button>
+    <label class="switch-label"><input type="checkbox" id="hybridSat"> Hybrid Satellite</label>
+    <input type="text" id="searchInput1" placeholder="Search left map">
+    <button id="searchBtn1">Go Left</button>
+    <input type="text" id="searchInput2" placeholder="Search right map">
+    <button id="searchBtn2">Go Right</button>
+  </div>
+  <div id="map-container">
+    <div id="map2"></div>
+    <div id="map1"></div>
+    <div id="divider"><div id="handle"></div></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // initial clip fraction
+    let clipPct = 0.5;
+    // initialize maps
+    const map1 = L.map('map1', { center: [0,0], zoom:2, zoomControl:false });
+    const map2 = L.map('map2', { center: [0,0], zoom:2, zoomControl:false });
+    // zoom controls
+    L.control.zoom({ position: 'bottomleft' }).addTo(map1);
+    L.control.zoom({ position: 'bottomright' }).addTo(map2);
+    // scale bars
+    L.control.scale({ position: 'bottomleft', metric:true, imperial:false }).addTo(map1);
+    L.control.scale({ position: 'bottomright', metric:true, imperial:false }).addTo(map2);
+    // tile sources
+    const osmUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    const satUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+    const lblUrl = 'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+    // layers
+    const base1 = L.tileLayer(osmUrl).addTo(map1);
+    const base2 = L.tileLayer(osmUrl).addTo(map2);
+    const sat1 = L.tileLayer(satUrl);
+    const sat2 = L.tileLayer(satUrl);
+    const lbl1 = L.tileLayer(lblUrl);
+    const lbl2 = L.tileLayer(lblUrl);
+    // track last centers for pan sync
+    let lastCenter1 = map1.getCenter();
+    let lastCenter2 = map2.getCenter();
+    let syncingPan = false;
+    // Sync Pan event handlers
+    const panSync = document.getElementById('panSync');
+    map1.on('move', () => {
+      if (panSync.checked && !syncingPan) {
+        const c = map1.getCenter();
+        const dLat = c.lat - lastCenter1.lat;
+        const dLng = c.lng - lastCenter1.lng;
+        syncingPan = true;
+        map2.setView([
+          map2.getCenter().lat + dLat,
+          map2.getCenter().lng + dLng
+        ], map2.getZoom(), { animate: false });
+        syncingPan = false;
+        lastCenter2 = map2.getCenter();
+      }
+      lastCenter1 = map1.getCenter();
+    });
+    map2.on('move', () => {
+      if (panSync.checked && !syncingPan) {
+        const c = map2.getCenter();
+        const dLat = c.lat - lastCenter2.lat;
+        const dLng = c.lng - lastCenter2.lng;
+        syncingPan = true;
+        map1.setView([
+          map1.getCenter().lat + dLat,
+          map1.getCenter().lng + dLng
+        ], map1.getZoom(), { animate: false });
+        syncingPan = false;
+        lastCenter1 = map1.getCenter();
+      }
+      lastCenter2 = map2.getCenter();
+    });
+    // Sync Center
+    let syncingCenter = false;
+    document.getElementById('centerSync').addEventListener('change', () => {});
+    function onCenter(src, dst) {
+      if (!document.getElementById('centerSync').checked || syncingCenter) return;
+      syncingCenter = true;
+      dst.setView(src.getCenter(), dst.getZoom(), { animate: false });
+      syncingCenter = false;
+    }
+    map1.on('moveend', () => onCenter(map1, map2));
+    map2.on('moveend', () => onCenter(map2, map1));
+    // Sync Zoom
+    let syncingZoom = false;
+    document.getElementById('zoomSync').addEventListener('change', () => {});
+    function onZoom(src, dst) {
+      if (!document.getElementById('zoomSync').checked || syncingZoom) return;
+      syncingZoom = true;
+      dst.setZoom(src.getZoom());
+      syncingZoom = false;
+    }
+    map1.on('zoomend', () => onZoom(map1, map2));
+    map2.on('zoomend', () => onZoom(map2, map1));
+    // Snap view
+    document.getElementById('snapView').addEventListener('click', () => {
+      const c = map1.getCenter();
+      const z = map1.getZoom();
+      map2.setView(c, z);
+    });
+    // Hybrid toggle
+    document.getElementById('hybridSat').addEventListener('change', function() {
+      if (this.checked) {
+        map1.removeLayer(base1).addLayer(sat1).addLayer(lbl1);
+        map2.removeLayer(base2).addLayer(sat2).addLayer(lbl2);
+      } else {
+        map1.removeLayer(sat1).removeLayer(lbl1).addLayer(base1);
+        map2.removeLayer(sat2).removeLayer(lbl2).addLayer(base2);
+      }
+    });
+    // Search left map
+    let marker1;
+    document.getElementById('searchBtn1').addEventListener('click', () => {
+      const q = document.getElementById('searchInput1').value.trim();
+      if (!q) return;
+      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`)
+        .then(r => r.json()).then(data => {
+          if (!data[0]) return;
+          const latlng = [+data[0].lat, +data[0].lon];
+          if (marker1) map1.removeLayer(marker1);
+          marker1 = L.marker(latlng).addTo(map1);
+          map1.setView(latlng, map1.getZoom());
+        });
+    });
+    // Search right map
+    let marker2;
+    document.getElementById('searchBtn2').addEventListener('click', () => {
+      const q = document.getElementById('searchInput2').value.trim();
+      if (!q) return;
+      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`)
+        .then(r => r.json()).then(data => {
+          if (!data[0]) return;
+          const latlng = [+data[0].lat, +data[0].lon];
+          if (marker2) map2.removeLayer(marker2);
+          marker2 = L.marker(latlng).addTo(map2);
+          map2.setView(latlng, map2.getZoom());
+        });
+    });
+    // Divider drag logic
+    const divider = document.getElementById('divider');
+    const mapCont = document.getElementById('map-container');
+    let dragging = false;
+    const startDrag = () => { dragging = true; divider.style.cursor = 'grabbing'; };
+    const endDrag = () => { dragging = false; divider.style.cursor = 'col-resize'; };
+    const onDrag = e => {
+      if (!dragging) return;
+      const rect = mapCont.getBoundingClientRect();
+      let x = e.clientX - rect.left;
+      x = Math.max(0, Math.min(rect.width, x));
+      clipPct = x / rect.width;
+      const pct = clipPct * 100;
+      document.getElementById('map1').style.clipPath = `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`;
+      divider.style.left = `${pct}%`;
+      map1.invalidateSize();
+      map2.invalidateSize();
+    };
+    divider.addEventListener('mousedown', startDrag);
+    document.getElementById('handle').addEventListener('mousedown', startDrag);
+    window.addEventListener('mousemove', onDrag);
+    window.addEventListener('mouseup', endDrag);
+  </script>
+</body>
+</html>
